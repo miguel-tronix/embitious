@@ -4,7 +4,10 @@ import com.embitious.dto.EmbeddingRequest;
 import com.embitious.dto.EmbeddingResponse;
 import com.embitious.dto.ErrorResponse;
 import com.embitious.service.EmbeddingService;
+import io.micrometer.core.annotation.Counted;
+import io.micrometer.core.annotation.Timed;
 import jakarta.inject.Inject;
+import jakarta.validation.Valid;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
@@ -41,16 +44,13 @@ public class EmbeddingResource {
     @APIResponse(responseCode = "500", description = "Internal server error during embedding computation",
             content = @Content(mediaType = MediaType.APPLICATION_JSON,
                     schema = @Schema(implementation = ErrorResponse.class)))
+    @Timed(value = "embitious.embedding", description = "Time taken to compute a single embedding")
+    @Counted(value = "embitious.embedding", description = "Count of embedding requests")
     public Response embed(
+            @Valid
             @RequestBody(description = "The request containing text to embed", required = true,
                     content = @Content(schema = @Schema(implementation = EmbeddingRequest.class)))
             EmbeddingRequest request) {
-        if (request == null || request.getText() == null || request.getText().isBlank()) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(new ErrorResponse("Text must not be null or empty"))
-                    .build();
-        }
-
         try {
             long startTime = System.currentTimeMillis();
             float[] embedding = embeddingService.embed(request.getText());
@@ -60,7 +60,7 @@ public class EmbeddingResource {
         } catch (Exception e) {
             LOG.errorf(e, "Failed to compute embedding for text: %s", request.getText());
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                    .entity(new ErrorResponse("Embedding computation failed: " + e.getMessage()))
+                    .entity(new ErrorResponse("MODEL_ERROR", "Embedding computation failed: " + e.getMessage()))
                     .build();
         }
     }

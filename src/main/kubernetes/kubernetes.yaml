@@ -4,6 +4,10 @@ metadata:
   name: embitious
   labels:
     app: embitious
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/q/metrics"
 spec:
   replicas: 1
   selector:
@@ -13,6 +17,10 @@ spec:
     metadata:
       labels:
         app: embitious
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/q/metrics"
     spec:
       containers:
         - name: embitious
@@ -20,6 +28,7 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+              name: http
               protocol: TCP
           env:
             - name: QUARKUS_ARTEMIS_URL
@@ -30,6 +39,9 @@ spec:
               value: "artemis"
             - name: EMBITIOUS_EMBEDDING_OFFLINE
               value: "false"
+          # NOTE: Adjust memory/cpu based on the model size:
+          # - all-MiniLM-L6-v2 (~90MB model): 2Gi should be sufficient
+          # - all-mpnet-base-v2 (~420MB model): consider 4Gi+
           resources:
             limits:
               memory: "2Gi"
@@ -37,18 +49,54 @@ spec:
             requests:
               memory: "1Gi"
               cpu: "500m"
-          livenessProbe:
-            httpGet:
-              path: /q/health/live
-              port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
+          # Startup probe gives large models time to download and load on first start
+          startupProbe:
             httpGet:
               path: /q/health/ready
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5
+            failureThreshold: 18
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 5
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: embitious-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: embitious
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 120
 ---
 apiVersion: v1
 kind: Service

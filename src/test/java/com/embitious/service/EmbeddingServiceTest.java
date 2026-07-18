@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -69,5 +71,29 @@ class EmbeddingServiceTest {
         List<float[]> result = embeddingService.embedBatch(new ArrayList<>());
         assertNotNull(result);
         assertTrue(result.isEmpty());
+    }
+
+    /**
+     * Integration test that requires a downloaded model. Disabled by default;
+     * enable manually (remove @Disabled) when a real model is available.
+     */
+    @Test
+    @Tag("integration")
+    @Disabled("Requires a downloaded embedding model. Remove this annotation to run manually.")
+    void testEmbedBatchWithRealModel() {
+        // This test requires a fully initialized EmbeddingService with a real model loaded.
+        // Use @QuarkusTest and @Inject to run it with the full Quarkus context.
+        List<String> texts = List.of(
+                "The quick brown fox jumps over the lazy dog",
+                "Artificial intelligence and deep learning",
+                "Quarkus is a cloud-native Java framework"
+        );
+        List<float[]> embeddings = embeddingService.embedBatch(texts);
+        assertNotNull(embeddings);
+        assertEquals(3, embeddings.size());
+        for (float[] emb : embeddings) {
+            assertNotNull(emb);
+            assertTrue(emb.length > 0);
+        }
     }
 }

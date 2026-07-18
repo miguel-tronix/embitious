@@ -10,6 +10,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.eclipse.microprofile.faulttolerance.Timeout;
 import org.jboss.logging.Logger;
 
 import java.io.IOException;
@@ -29,7 +30,7 @@ public class EmbeddingService {
 
     private ZooModel<String, float[]> model;
     private ThreadLocal<Predictor<String, float[]>> threadLocalPredictor;
-    private final List<Predictor<String, float[]>> predictorsToClose = java.util.Collections.synchronizedList(new ArrayList<>());
+    private final List<Predictor<String, float[]>> predictorsToClose = new ArrayList<>();
 
     @PostConstruct
     void init() {
@@ -62,6 +63,7 @@ public class EmbeddingService {
         }
     }
 
+    @Timeout(30000)
     public float[] embed(String text) {
         try {
             return threadLocalPredictor.get().predict(text);
@@ -70,6 +72,7 @@ public class EmbeddingService {
         }
     }
 
+    @Timeout(60000)
     public List<float[]> embedBatch(List<String> texts) {
         if (texts == null || texts.isEmpty()) {
             return new ArrayList<>();

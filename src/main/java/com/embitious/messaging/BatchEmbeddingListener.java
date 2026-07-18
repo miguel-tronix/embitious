@@ -4,6 +4,7 @@ import com.embitious.service.EmbeddingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
+import io.quarkus.runtime.annotations.RegisterForReflection;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
@@ -12,11 +13,15 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
 public class BatchEmbeddingListener {
 
     private static final Logger LOG = Logger.getLogger(BatchEmbeddingListener.class);
+    private static final long JMS_RECONNECT_DELAY_SECONDS = 30;
 
     @Inject
     ConnectionFactory connectionFactory;
@@ -32,6 +37,7 @@ public class BatchEmbeddingListener {
 
     private JMSContext context;
     private JMSConsumer consumer;
+    private final ScheduledExecutorService reconnectScheduler = Executors.newSingleThreadScheduledExecutor();
 
     void onStart(@Observes StartupEvent ev) {
         LOG.infof("Starting JMS Batch Embedding Consumer on queue: %s", requestQueueName);
@@ -45,9 +51,24 @@ public class BatchEmbeddingListener {
             LOG.info("JMS MessageListener successfully registered.");
         } catch (Exception e) {
             LOG.error("Failed to initialize JMS consumer. The broker may be offline.", e);
-            // We do not fail startup, so that REST endpoints can still function.
-            // In Kubernetes, this can be monitored or retried.
+            // Schedule periodic reconnection attempts
+            scheduleReconnect();
         }
+    }
+
+    private void scheduleReconnect() {
+        LOG.infof("Scheduling JMS reconnection attempt in %d seconds", JMS_RECONNECT_DELAY_SECONDS);
+        reconnectScheduler.schedule(() -> {
+            try {
+                LOG.info("Attempting JMS reconnection...");
+                if (context == null || consumer == null) {
+                    onStart(null); // retry initialization
+                }
+            } catch (Exception e) {
+                LOG.error("JMS reconnection attempt failed", e);
+                scheduleReconnect();
+            }
+        }, JMS_RECONNECT_DELAY_SECONDS, TimeUnit.SECONDS);
     }
 
     private void onMessage(Message message) {
@@ -123,6 +144,7 @@ public class BatchEmbeddingListener {
 
     void onStop(@Observes ShutdownEvent ev) {
         LOG.info("Stopping JMS Batch Embedding Consumer...");
+        reconnectScheduler.shutdownNow();
         if (consumer != null) {
             try {
                 consumer.close();
@@ -141,6 +163,7 @@ public class BatchEmbeddingListener {
 
     // --- Request/Response POJOs ---
 
+    @RegisterForReflection
     public static class BatchRequest {
         private String id;
         private List<String> texts;
@@ -162,6 +185,7 @@ public class BatchEmbeddingListener {
         }
     }
 
+    @RegisterForReflection
     public static class BatchResponse {
         private String requestId;
         private List<float[]> embeddings;
@@ -190,13 +214,29 @@ public class BatchEmbeddingListener {
         }
     }
 
+    @RegisterForReflection
     public static class BatchErrorResponse {
+        private String errorCode;
         private String error;
 
         public BatchErrorResponse() {}
 
-        public BatchErrorResponse(String error) {
+        public BatchErrorResponse(String errorCode, String error) {
+            this.errorCode = errorCode;
             this.error = error;
+        }
+
+        public BatchErrorResponse(String error) {
+            this.errorCode = "INTERNAL_ERROR";
+            this.error = error;
+        }
+
+        public String getErrorCode() {
+            return errorCode;
+        }
+
+        public void setErrorCode(String errorCode) {
+            this.errorCode = errorCode;
         }
 
         public String getError() {

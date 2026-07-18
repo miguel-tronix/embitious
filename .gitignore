@@ -7,7 +7,6 @@ target/
 # IDE
 .idea/
 *.iml
-.vscode/
 *.swp
 *.swo
 
