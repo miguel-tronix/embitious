@@ -1,3 +1,5 @@
+# Dockerfile.native-micro — Smallest possible native image using Quarkus micro base image.
+# Use for distroless-style deployments. Requires: ./mvnw package -Dnative
 FROM quay.io/quarkus/quarkus-micro-image:2.0
 
 WORKDIR /work/
